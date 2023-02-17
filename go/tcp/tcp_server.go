@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 )
 
 func main() {
@@ -24,6 +25,8 @@ func main() {
 			fmt.Println("err : ", err)
 			return // return 表示程序结束
 		}
+		// 设置短连接(10秒)
+		conn.SetReadDeadline(time.Now().Add(time.Duration(10)*time.Second))
 		// 3. 处理用户的连接信息
 		go handler(conn)
 	}
@@ -32,21 +35,43 @@ func main() {
 // 处理用户的连接信息
 func handler(c net.Conn) {
 	defer c.Close() // 一定要写 ，关闭连接
-	reader := bufio.NewReader(c)
+	//方案一:采用listen.Accept()返回的链接直接Read读取
+	buffer := make([]byte, 1024)
+	//reader := bufio.NewReader(c)
 	for {
-		//var data [1024]byte // 数组 - 》定义每一次数据读取的量
-		// Read(p []byte) 需要采用切片接收
-		// 数组用 : 处理完之后会变为切片
-		//n, err := bufio.NewReader(c).Read(data[:]) //n代表切片数据读取的位置
-		msg, err := unpack(reader)
+		//读取到字节数组的长度
+		bufferLen, err := c.Read(buffer)
 		if err != nil {
 			fmt.Println("err : ", err)
 			break
 		}
-		fmt.Println("client data", msg)
-		// Write(b []byte) (n int, err error)
-		c.Write([]byte("this is server"))
+		unpackConRead(buffer,bufferLen)
+
+		//var data [1024]byte // 数组 - 》定义每一次数据读取的量
+		// Read(p []byte) 需要采用切片接收
+		// 数组用 : 处理完之后会变为切片
+		//n, err := bufio.NewReader(c).Read(data[:]) //n代表切片数据读取的位置
+
+		//
+		//msg, err := unpack(reader)
+		//if err != nil {
+		//	fmt.Println("err : ", err)
+		//	break
+		//}
+		//fmt.Println("client data :", msg)
+		//// Write(b []byte) (n int, err error)
+		//c.Write([]byte("this is server"))
 	}
+}
+
+//listen.Accept()数据处理
+func unpackConRead(buffer []byte,byteLen int){
+	//获取包头长度
+	headLenByte := buffer[:2]//这是个字节数组
+	headLen     := binary.BigEndian.Uint16(headLenByte)
+
+	dd := buffer[2:byteLen]
+	fmt.Println("dd : ", string(dd))
 }
 
 func unpack(reader *bufio.Reader) (string, error) {

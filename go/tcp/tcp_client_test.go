@@ -19,12 +19,10 @@ func TestTcpClient(t *testing.T) {
 	msg := "test nian bao 666" // 字节切片
 	msgLen := len(msg)
 	length := int16(msgLen) // 长度2个字节
-	fmt.Println("length : ", length)
 	fmt.Println("msgLen : ", msgLen)
 	pkg := new(bytes.Buffer)
 	binary.Write(pkg, binary.BigEndian, length)
 	data := append(pkg.Bytes(), []byte(msg)...)
-	fmt.Println("data : ", data)
 	// 2. 进行数据的发送&接收数据
 	for i := 1; i < 10; i++ {
 		conn.Write(data)
