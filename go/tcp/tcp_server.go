@@ -38,14 +38,21 @@ func handler(c net.Conn) {
 	//方案一:采用listen.Accept()返回的链接直接Read读取
 	buffer := make([]byte, 1024)
 	//reader := bufio.NewReader(c)
+
+	//心跳计时
+	message := make(chan []byte)
+	go HeartBeating(c, &message, 10)
+
 	for {
+		fmt.Println("============start read")
 		//读取到字节数组的长度
 		bufferLen, err := c.Read(buffer)
 		if err != nil {
 			fmt.Println("err : ", err)
 			break
 		}
-		unpackConRead(buffer,bufferLen)
+
+		unpackConRead(buffer,bufferLen,&message)
 
 		//var data [1024]byte // 数组 - 》定义每一次数据读取的量
 		// Read(p []byte) 需要采用切片接收
@@ -59,19 +66,32 @@ func handler(c net.Conn) {
 		//	break
 		//}
 		//fmt.Println("client data :", msg)
-		//// Write(b []byte) (n int, err error)
-		//c.Write([]byte("this is server"))
+		// Write(b []byte) (n int, err error)
+		c.Write([]byte("this is server"))
 	}
 }
 
 //listen.Accept()数据处理
-func unpackConRead(buffer []byte,byteLen int){
+func unpackConRead(buffer []byte,byteLen int,messageChan *chan []byte){
 	//获取包头长度
-	headLenByte := buffer[:2]//这是个字节数组
-	headLen     := binary.BigEndian.Uint16(headLenByte)
+	var headStart int
+	var dataStart int
+	headStart    = 0//包头开始的位置
+	dataStart 	 = 2//包体开始的位置，包头为2个字节所以永远是加2
+	for {
+		headLenByte := buffer[headStart:dataStart]//这是个字节数组
+		headLen     := binary.BigEndian.Uint16(headLenByte)//包体的长度
+		if headLen == 0{
+			break
+		}
+		//具体包的内容
+		dataEnd     := int(headLen) + dataStart
+		bufferData  := buffer[dataStart:dataEnd]
+		*messageChan <-bufferData
 
-	dd := buffer[2:byteLen]
-	fmt.Println("dd : ", string(dd))
+		headStart = dataEnd
+		dataStart = headStart + 2
+	}
 }
 
 func unpack(reader *bufio.Reader) (string, error) {
@@ -100,6 +120,24 @@ func unpack(reader *bufio.Reader) (string, error) {
 	}
 	return string(pack[2:]), nil
 }
+
+func HeartBeating(conn net.Conn,message *chan []byte, timeout int)  {
+	heart:
+	for  {
+		select {
+		case msg := <- *message:
+			fmt.Println("包体:",string(msg))
+			conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
+
+		case <- time.After(5 * time.Second):
+			fmt.Println("conn dead")
+			conn.Close()
+			break heart
+		}
+	}
+}
+
+
 
 
 
