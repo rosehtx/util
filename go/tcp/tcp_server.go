@@ -22,11 +22,11 @@ func main() {
 		// 2. 接收客户向服务端建立的连接
 		conn, err := listen.Accept() // 可以与客户端建立连接 ， 如果没有连接挂起阻塞状态
 		if err != nil {
-			fmt.Println("err : ", err)
-			return // return 表示程序结束
+			fmt.Println("listen err : ", err)
+			continue // 这里只是跳出本次循环
 		}
 		// 设置短连接(10秒)
-		conn.SetReadDeadline(time.Now().Add(time.Duration(10)*time.Second))
+		//conn.SetReadDeadline(time.Now().Add(time.Duration(10)*time.Second))
 		// 3. 处理用户的连接信息
 		go handler(conn)
 	}
@@ -35,44 +35,40 @@ func main() {
 // 处理用户的连接信息
 func handler(c net.Conn) {
 	defer c.Close() // 一定要写 ，关闭连接
-	//方案一:采用listen.Accept()返回的链接直接Read读取
-	buffer := make([]byte, 1024)
-	//reader := bufio.NewReader(c)
-
+	//方案二用到reader 这边提前建一个reader防止重复建
+	reader  := bufio.NewReader(c)
 	//心跳计时
 	message := make(chan []byte)
 	go HeartBeating(c, &message, 10)
 
 	for {
-		fmt.Println("============start read")
-		//读取到字节数组的长度
-		bufferLen, err := c.Read(buffer)
-		if err != nil {
-			fmt.Println("err : ", err)
-			break
-		}
-
-		unpackConRead(buffer,bufferLen,&message)
-
-		//var data [1024]byte // 数组 - 》定义每一次数据读取的量
-		// Read(p []byte) 需要采用切片接收
-		// 数组用 : 处理完之后会变为切片
-		//n, err := bufio.NewReader(c).Read(data[:]) //n代表切片数据读取的位置
-
-		//
-		//msg, err := unpack(reader)
+		buffer := make([]byte, 1024)
+		//方案一:采用listen.Accept()返回的链接直接Read读取
+		//循环读取客户端消息 读取到字节数组的长度
+		//bufferLen, err := c.Read(buffer)
 		//if err != nil {
-		//	fmt.Println("err : ", err)
+		//	fmt.Println("Read err : ", err)
 		//	break
 		//}
-		//fmt.Println("client data :", msg)
-		// Write(b []byte) (n int, err error)
-		c.Write([]byte("this is server"))
+		//fmt.Println("read bufferLen ",bufferLen)
+		//unpackConRead(buffer,&message)
+
+		//方案二:采用io的reader自带Read方法读取
+		bufferLen, err := reader.Read(buffer)
+		if err != nil {
+			fmt.Println("bufio NewReader err : ", err)
+			break
+		}
+		fmt.Println("bufio NewReader bufferLen ",bufferLen)
+		unpackConRead(buffer,&message)
+
+		//涉及到一点buffer处理
+		//msg, err := unpackIoRead(reader)
 	}
 }
 
 //listen.Accept()数据处理
-func unpackConRead(buffer []byte,byteLen int,messageChan *chan []byte){
+func unpackConRead(buffer []byte,messageChan *chan []byte){
 	//获取包头长度
 	var headStart int
 	var dataStart int
@@ -80,12 +76,13 @@ func unpackConRead(buffer []byte,byteLen int,messageChan *chan []byte){
 	dataStart 	 = 2//包体开始的位置，包头为2个字节所以永远是加2
 	for {
 		headLenByte := buffer[headStart:dataStart]//这是个字节数组
-		headLen     := binary.BigEndian.Uint16(headLenByte)//包体的长度
-		if headLen == 0{
+		bodyLen     := binary.BigEndian.Uint16(headLenByte)//包体的长度
+		fmt.Println("bodyLen :",bodyLen)
+		if bodyLen == 0{
 			break
 		}
 		//具体包的内容
-		dataEnd     := int(headLen) + dataStart
+		dataEnd     := int(bodyLen) + dataStart
 		bufferData  := buffer[dataStart:dataEnd]
 		*messageChan <-bufferData
 
@@ -94,7 +91,8 @@ func unpackConRead(buffer []byte,byteLen int,messageChan *chan []byte){
 	}
 }
 
-func unpack(reader *bufio.Reader) (string, error) {
+//reader来处理
+func unpackIoRead(reader *bufio.Reader) (string, error) {
 	// 包头解析
 	lenByte, _ := reader.Peek(2) // 读取前 固定的几个字节的信息
 
@@ -127,14 +125,21 @@ func HeartBeating(conn net.Conn,message *chan []byte, timeout int)  {
 		select {
 		case msg := <- *message:
 			fmt.Println("包体:",string(msg))
-			conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
-
+			//conn.SetDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
+			clintMsg := string(msg)
+			go writeClientMsg(clintMsg,conn)
+		//链接过期时间自己调节
 		case <- time.After(5 * time.Second):
 			fmt.Println("conn dead")
 			conn.Close()
 			break heart
 		}
 	}
+}
+
+//这边要做一个类似分发的功能
+func writeClientMsg(msg string,conn net.Conn)  {
+	conn.Write([]byte("server get "+msg))
 }
 
 
