@@ -41,7 +41,10 @@ func init()  {
 }
 
 func main() {
-	defer ants.Release()
+	//关闭协程池
+	//defer ants.Release()
+	defer p.Release()
+	defer pF.Release()
 
 	runTimes := 10
 
